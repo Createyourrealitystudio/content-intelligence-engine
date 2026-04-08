@@ -31,6 +31,22 @@ export function ICPInput() {
   const router = useRouter();
 
   const readFile = useCallback(async (file: File): Promise<string> => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+
+    // .doc/.docx files need server-side parsing
+    if (ext === "doc" || ext === "docx") {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/parse-doc", { method: "POST", body: formData });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to parse document");
+      }
+      const data = await res.json();
+      return data.text;
+    }
+
+    // Text-based files can be read directly in the browser
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -45,15 +61,11 @@ export function ICPInput() {
     const file = e.dataTransfer.files[0];
     if (!file) return;
 
-    const validTypes = [
-      "text/plain", "text/markdown", "text/csv",
-      "application/json", "text/html",
-    ];
-    const validExtensions = [".txt", ".md", ".csv", ".json", ".rtf", ".doc"];
+    const validExtensions = [".txt", ".md", ".csv", ".json", ".rtf", ".doc", ".docx"];
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
 
-    if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
-      setError("Please drop a text file (.txt, .md, .csv, .json). For Word docs, copy-paste the content instead.");
+    if (!validExtensions.includes(ext)) {
+      setError("Supported formats: .txt, .md, .doc, .docx, .csv, .json");
       return;
     }
 
@@ -170,7 +182,7 @@ export function ICPInput() {
               </div>
             )}
             <Textarea
-              placeholder="Paste your ICP here, or drag & drop a .txt / .md file..."
+              placeholder="Paste your ICP here, or drag & drop a .doc / .docx / .txt / .md file..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
               className="min-h-[200px] text-base"
@@ -182,12 +194,12 @@ export function ICPInput() {
               <span>Upload a file</span>
               <input
                 type="file"
-                accept=".txt,.md,.csv,.json,.rtf"
+                accept=".txt,.md,.csv,.json,.rtf,.doc,.docx"
                 onChange={handleFileSelect}
                 className="hidden"
               />
             </label>
-            <span className="text-xs text-muted-foreground">(.txt, .md, .csv, .json)</span>
+            <span className="text-xs text-muted-foreground">(.doc, .docx, .txt, .md, .csv, .json)</span>
           </div>
           {error && (
             <p className="text-destructive text-sm">{error}</p>
