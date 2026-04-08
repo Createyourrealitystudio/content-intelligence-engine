@@ -28,8 +28,15 @@ export async function POST(request: Request) {
     return NextResponse.json(analysis);
   } catch (error) {
     console.error("Analysis error:", error);
+    const msg = error instanceof Error ? error.message : "Analysis failed";
+    if (msg.includes("authentication") || msg.includes("api-key") || msg.includes("401")) {
+      return NextResponse.json(
+        { error: "API key not configured. Please add your Anthropic API key in Vercel project settings." },
+        { status: 401 }
+      );
+    }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Analysis failed" },
+      { error: msg },
       { status: 500 }
     );
   }

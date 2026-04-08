@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useCallback, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState } from "@/components/loading-state";
-import { Zap, FileText, Target } from "lucide-react";
+import { Zap, FileText, Target, Upload } from "lucide-react";
 
 const exampleICPs = [
   {
@@ -27,7 +27,66 @@ export function ICPInput() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [dragging, setDragging] = useState(false);
   const router = useRouter();
+
+  const readFile = useCallback(async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsText(file);
+    });
+  }, []);
+
+  const handleDrop = useCallback(async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    const validTypes = [
+      "text/plain", "text/markdown", "text/csv",
+      "application/json", "text/html",
+    ];
+    const validExtensions = [".txt", ".md", ".csv", ".json", ".rtf", ".doc"];
+    const ext = "." + file.name.split(".").pop()?.toLowerCase();
+
+    if (!validTypes.includes(file.type) && !validExtensions.includes(ext)) {
+      setError("Please drop a text file (.txt, .md, .csv, .json). For Word docs, copy-paste the content instead.");
+      return;
+    }
+
+    try {
+      const text = await readFile(file);
+      setInput(text);
+      setError("");
+    } catch {
+      setError("Could not read that file. Try copy-pasting the content instead.");
+    }
+  }, [readFile]);
+
+  const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setDragging(false);
+  }, []);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await readFile(file);
+      setInput(text);
+      setError("");
+    } catch {
+      setError("Could not read that file. Try copy-pasting the content instead.");
+    }
+  }, [readFile]);
 
   async function handleAnalyze() {
     if (input.trim().length < 10) {
@@ -94,12 +153,42 @@ export function ICPInput() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Textarea
-            placeholder="Example: My ideal client is a 30-year-old male entrepreneur trying to grow on Instagram. He's making $5-10K/month from coaching, frustrated that his content gets low engagement, and doesn't know how to turn followers into paying clients..."
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            className="min-h-[200px] text-base"
-          />
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            className={`relative rounded-lg transition-colors ${
+              dragging ? "ring-2 ring-primary bg-primary/5" : ""
+            }`}
+          >
+            {dragging && (
+              <div className="absolute inset-0 flex items-center justify-center bg-primary/10 rounded-lg z-10 border-2 border-dashed border-primary">
+                <div className="flex flex-col items-center gap-2 text-primary">
+                  <Upload className="w-8 h-8" />
+                  <span className="font-medium">Drop your ICP document here</span>
+                </div>
+              </div>
+            )}
+            <Textarea
+              placeholder="Paste your ICP here, or drag & drop a .txt / .md file..."
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              className="min-h-[200px] text-base"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer hover:text-foreground transition-colors">
+              <Upload className="w-4 h-4" />
+              <span>Upload a file</span>
+              <input
+                type="file"
+                accept=".txt,.md,.csv,.json,.rtf"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
+            </label>
+            <span className="text-xs text-muted-foreground">(.txt, .md, .csv, .json)</span>
+          </div>
           {error && (
             <p className="text-destructive text-sm">{error}</p>
           )}
