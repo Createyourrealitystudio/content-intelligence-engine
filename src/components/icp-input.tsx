@@ -5,8 +5,9 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { LoadingState } from "@/components/loading-state";
-import { Zap, FileText, Target, Upload } from "lucide-react";
+import { PromptCopyPaste } from "@/components/prompt-copy-paste";
+import { buildICPPromptForClipboard } from "@/lib/prompts-client";
+import { Zap, FileText, Target, Upload, ArrowLeft } from "lucide-react";
 
 const exampleICPs = [
   {
@@ -25,15 +26,14 @@ const exampleICPs = [
 
 export function ICPInput() {
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [dragging, setDragging] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [prompt, setPrompt] = useState("");
   const router = useRouter();
 
   const readFile = useCallback(async (file: File): Promise<string> => {
     const ext = file.name.split(".").pop()?.toLowerCase();
-
-    // .doc/.docx files need server-side parsing
     if (ext === "doc" || ext === "docx") {
       const formData = new FormData();
       formData.append("file", file);
@@ -45,8 +45,6 @@ export function ICPInput() {
       const data = await res.json();
       return data.text;
     }
-
-    // Text-based files can be read directly in the browser
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -60,15 +58,12 @@ export function ICPInput() {
     setDragging(false);
     const file = e.dataTransfer.files[0];
     if (!file) return;
-
     const validExtensions = [".txt", ".md", ".csv", ".json", ".rtf", ".doc", ".docx"];
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
-
     if (!validExtensions.includes(ext)) {
       setError("Supported formats: .txt, .md, .doc, .docx, .csv, .json");
       return;
     }
-
     try {
       const text = await readFile(file);
       setInput(text);
@@ -100,44 +95,41 @@ export function ICPInput() {
     }
   }, [readFile]);
 
-  async function handleAnalyze() {
+  function handleGenerate() {
     if (input.trim().length < 10) {
       setError("Please provide more detail about your ideal customer.");
       return;
     }
-
-    setLoading(true);
     setError("");
-
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ icpInput: input }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Analysis failed");
-      }
-
-      const analysis = await res.json();
-      sessionStorage.setItem("icpAnalysis", JSON.stringify(analysis));
-      sessionStorage.setItem("icpInput", input);
-      router.push("/recommendations");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+    const builtPrompt = buildICPPromptForClipboard(input.trim());
+    setPrompt(builtPrompt);
+    sessionStorage.setItem("icpInput", input);
+    setShowPrompt(true);
   }
 
-  if (loading) {
+  function handleResponsePasted(data: Record<string, unknown>) {
+    sessionStorage.setItem("icpAnalysis", JSON.stringify(data));
+    router.push("/recommendations");
+  }
+
+  if (showPrompt) {
     return (
-      <LoadingState
-        title="Analyzing your ICP..."
-        subtitle="Mapping against 26 angle families, 28 hook categories, 6 funnel stages, and 20 psychological mechanisms"
-      />
+      <div className="space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">Analyze Your ICP</h1>
+          <p className="text-muted-foreground">Copy the prompt, paste it into Claude.ai, then paste the response back here.</p>
+        </div>
+        <Button variant="ghost" onClick={() => setShowPrompt(false)} className="mb-2">
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to edit ICP
+        </Button>
+        <PromptCopyPaste
+          prompt={prompt}
+          onResponsePasted={handleResponsePasted}
+          step={1}
+          title="Copy the ICP Analysis Prompt"
+          description="This prompt contains your ICP + the full Content Intelligence system. Paste it into Claude.ai to generate your analysis."
+        />
+      </div>
     );
   }
 
@@ -160,8 +152,7 @@ export function ICPInput() {
             Describe Your Ideal Customer
           </CardTitle>
           <CardDescription>
-            Paste a detailed ICP doc or write a quick description. Include demographics,
-            pain points, desires, objections, and platforms they use. More detail = better output.
+            Paste a detailed ICP doc, drag & drop a file, or write a quick description. More detail = better output.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -205,12 +196,12 @@ export function ICPInput() {
             <p className="text-destructive text-sm">{error}</p>
           )}
           <Button
-            onClick={handleAnalyze}
+            onClick={handleGenerate}
             className="w-full text-base py-6"
             size="lg"
           >
             <Zap className="w-5 h-5 mr-2" />
-            Analyze ICP & Generate Strategy
+            Generate Analysis Prompt
           </Button>
         </CardContent>
       </Card>

@@ -6,13 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ICPAnalysisCard } from "@/components/icp-analysis-card";
 import { RecommendationGrid } from "@/components/recommendation-grid";
-import { LoadingState } from "@/components/loading-state";
+import { PromptCopyPaste } from "@/components/prompt-copy-paste";
+import { buildCalendarPromptForClipboard } from "@/lib/prompts-client";
 import { ICPAnalysis } from "@/lib/types";
 import { Calendar, ArrowLeft } from "lucide-react";
 
 export default function RecommendationsPage() {
   const [analysis, setAnalysis] = useState<ICPAnalysis | null>(null);
-  const [generating, setGenerating] = useState(false);
+  const [showCalendarPrompt, setShowCalendarPrompt] = useState(false);
+  const [calendarPrompt, setCalendarPrompt] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -24,32 +26,38 @@ export default function RecommendationsPage() {
     }
   }, [router]);
 
-  async function handleGenerateCalendar() {
-    setGenerating(true);
-    try {
-      const res = await fetch("/api/calendar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ icpAnalysis: analysis, days: 30 }),
-      });
-      if (!res.ok) throw new Error("Calendar generation failed");
-      const calendar = await res.json();
-      sessionStorage.setItem("contentCalendar", JSON.stringify(calendar));
-      router.push("/calendar");
-    } catch (err) {
-      console.error(err);
-      setGenerating(false);
-    }
+  function handleGenerateCalendar() {
+    if (!analysis) return;
+    const prompt = buildCalendarPromptForClipboard(JSON.stringify(analysis));
+    setCalendarPrompt(prompt);
+    setShowCalendarPrompt(true);
+  }
+
+  function handleCalendarPasted(data: Record<string, unknown>) {
+    sessionStorage.setItem("contentCalendar", JSON.stringify(data));
+    router.push("/calendar");
   }
 
   if (!analysis) return null;
 
-  if (generating) {
+  if (showCalendarPrompt) {
     return (
-      <LoadingState
-        title="Generating your 30-day content calendar..."
-        subtitle="Writing hooks, captions, and CTAs in your avatar's language across all funnel stages"
-      />
+      <div className="space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">Generate 30-Day Calendar</h1>
+          <p className="text-muted-foreground">Copy the prompt, paste it into Claude.ai, then paste the response back here.</p>
+        </div>
+        <Button variant="ghost" onClick={() => setShowCalendarPrompt(false)}>
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to recommendations
+        </Button>
+        <PromptCopyPaste
+          prompt={calendarPrompt}
+          onResponsePasted={handleCalendarPasted}
+          step={1}
+          title="Copy the Calendar Generation Prompt"
+          description="This prompt contains your ICP analysis + the full calendar system. Paste it into Claude.ai to generate your 30-day content plan. Note: this is a large prompt — Claude may take 30-60 seconds to respond."
+        />
+      </div>
     );
   }
 
