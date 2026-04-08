@@ -35,6 +35,12 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
+    if (msg.includes("credit") || msg.includes("billing") || msg.includes("balance")) {
+      return NextResponse.json(
+        { error: "Anthropic API credits are low. Please add credits at console.anthropic.com/settings/billing" },
+        { status: 402 }
+      );
+    }
     return NextResponse.json(
       { error: msg },
       { status: 500 }
