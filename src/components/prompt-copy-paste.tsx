@@ -25,6 +25,55 @@ export function PromptCopyPaste({ prompt, onResponsePasted, step, title, descrip
     setTimeout(() => setCopied(false), 3000);
   }
 
+  function fixBrokenJson(raw: string): string {
+    // Fix unescaped newlines inside JSON string values
+    // Walk through character by character, track if we're inside a string
+    let result = "";
+    let inString = false;
+    let escaped = false;
+
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+
+      if (escaped) {
+        result += ch;
+        escaped = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        result += ch;
+        escaped = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        result += ch;
+        continue;
+      }
+
+      if (inString && (ch === "\n" || ch === "\r")) {
+        // Replace literal newline inside a string with escaped version
+        if (ch === "\r" && raw[i + 1] === "\n") {
+          result += "\\n";
+          i++; // skip the \n after \r
+        } else {
+          result += "\\n";
+        }
+        continue;
+      }
+
+      if (inString && ch === "\t") {
+        result += "\\t";
+        continue;
+      }
+
+      result += ch;
+    }
+    return result;
+  }
+
   function handlePasteResponse() {
     if (!response.trim()) {
       setError("Please paste Claude's response first.");
@@ -32,24 +81,54 @@ export function PromptCopyPaste({ prompt, onResponsePasted, step, title, descrip
     }
 
     try {
-      // Try to extract JSON from the response (handle markdown code blocks)
       let text = response.trim();
+
       // Remove markdown code block wrapper if present
       const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (codeBlockMatch) {
         text = codeBlockMatch[1].trim();
       }
-      // Extract the JSON object
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        setError("No valid JSON found in the response. Make sure you copied Claude's full response.");
+
+      // Remove any leading text before the first {
+      const firstBrace = text.indexOf("{");
+      if (firstBrace === -1) {
+        setError("No JSON found in the response. Make sure you copied Claude's full response.");
         return;
       }
-      const parsed = JSON.parse(jsonMatch[0]);
+      // Find the matching closing brace
+      let depth = 0;
+      let lastBrace = -1;
+      for (let i = firstBrace; i < text.length; i++) {
+        if (text[i] === "{") depth++;
+        if (text[i] === "}") {
+          depth--;
+          if (depth === 0) { lastBrace = i; break; }
+        }
+      }
+      if (lastBrace === -1) {
+        setError("JSON appears to be cut off. Make sure you copied the COMPLETE response from Claude.");
+        return;
+      }
+
+      let jsonStr = text.slice(firstBrace, lastBrace + 1);
+
+      // Try parsing as-is first
+      try {
+        const parsed = JSON.parse(jsonStr);
+        setError("");
+        onResponsePasted(parsed);
+        return;
+      } catch {
+        // Fall through to fix attempt
+      }
+
+      // Fix unescaped newlines/tabs inside string values and try again
+      jsonStr = fixBrokenJson(jsonStr);
+      const parsed = JSON.parse(jsonStr);
       setError("");
       onResponsePasted(parsed);
     } catch {
-      setError("Could not parse the response. Make sure you copied Claude's full JSON response.");
+      setError("Could not parse the response. Try asking Claude to return the response inside a single JSON code block with no line breaks inside string values.");
     }
   }
 
